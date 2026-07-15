@@ -240,6 +240,8 @@ tr.watch .col-price { color: var(--red); font-weight: 700; }
   padding: 24px 12px;
   overflow-y: auto;
 }
+/* hidden属性による非表示を確実にする(.modalのdisplay:flexより高い詳細度で上書き) */
+.modal[hidden] { display: none; }
 .modal-box {
   background: #fff;
   border-radius: 12px;
