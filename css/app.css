@@ -91,6 +91,36 @@ body {
 #main { padding: 12px; max-width: 720px; margin: 0 auto; }
 .loading { text-align: center; color: var(--muted); padding: 40px 0; }
 
+/* ---------- 区分トグルバー ---------- */
+.cat-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.cat-filter-label { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.cat-toggle {
+  border: 1.5px solid var(--border);
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--muted);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.cat-toggle.on.cat-rice { border-color: #a1662f; color: #fff; background: #a1662f; }
+.cat-toggle.on.cat-veg { border-color: var(--veg); color: #fff; background: var(--veg); }
+.cat-toggle.on.cat-fish { border-color: var(--fish); color: #fff; background: var(--fish); }
+.cat-toggle.on.cat-meat { border-color: var(--meat); color: #fff; background: var(--meat); }
+.cat-toggle.off { text-decoration: line-through; opacity: .6; }
+
 .watch-hits {
   background: #fff0f0;
   border: 1px solid #f5c2c2;

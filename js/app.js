@@ -15,6 +15,7 @@ const LS = {
   hidden: "chirashi.hidden", // key -> 期限(epoch ms)
   gasUrl: "chirashi.gasUrl",
   gasSecret: "chirashi.gasSecret",
+  catVisible: "chirashi.catVisible", // 区分ごとの表示ON/OFF
 };
 
 const App = {
@@ -23,6 +24,7 @@ const App = {
   settingsSha: null,
   selected: {}, // key -> {store, name, price}
   hidden: {},   // key -> expiryMs
+  catVisible: {}, // cat -> bool (4区分の表示ON/OFF)
 };
 
 /* ---------- ユーティリティ ---------- */
@@ -43,9 +45,27 @@ const prodKey = (storeId, name) => `${storeId}::${name}`;
 async function init() {
   loadSelected();
   loadHidden();
+  loadCatVisible();
   bindUI();
   await Promise.all([loadSettings(), loadData()]);
   render();
+}
+
+/* ---------- 区分の表示ON/OFF(localStorage) ---------- */
+function loadCatVisible() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(LS.catVisible) || "{}");
+  } catch {
+    saved = {};
+  }
+  // 既定は全区分ON
+  CATEGORY_ORDER.forEach((c) => {
+    App.catVisible[c] = saved[c] !== false;
+  });
+}
+function saveCatVisible() {
+  localStorage.setItem(LS.catVisible, JSON.stringify(App.catVisible));
 }
 
 async function loadData() {
@@ -85,10 +105,6 @@ function loadSelected() {
 }
 function saveSelected() {
   localStorage.setItem(LS.selected, JSON.stringify(App.selected));
-  updateSelCount();
-}
-function updateSelCount() {
-  $("selCount").textContent = Object.keys(App.selected).length;
 }
 
 /* ---------- 3日間非表示(localStorage) ---------- */
@@ -134,19 +150,33 @@ function updateHiddenCount() {
 
 /* ---------- 描画 ---------- */
 function render() {
-  updateSelCount();
   updateHiddenCount();
   if (!App.data) return;
   $("loading").hidden = true;
 
-  const d = App.data.date || "";
-  $("dateLabel").textContent = d ? `${d} のチラシ情報` : "";
-
+  renderCatFilter();
   renderWatchHits();
 
   const container = $("stores");
   container.innerHTML = "";
   (App.data.stores || []).forEach((store) => container.appendChild(renderStore(store)));
+}
+
+// 上部の区分トグルバー(4区分の表示ON/OFF)
+function renderCatFilter() {
+  const bar = $("catFilter");
+  bar.innerHTML = "";
+  bar.appendChild(el("span", "cat-filter-label", "表示区分:"));
+  CATEGORY_ORDER.forEach((cat) => {
+    const on = App.catVisible[cat] !== false;
+    const btn = el("button", "cat-toggle " + (CAT_CLASS[cat] || "") + (on ? " on" : " off"), esc(cat));
+    btn.addEventListener("click", () => {
+      App.catVisible[cat] = !on;
+      saveCatVisible();
+      render();
+    });
+    bar.appendChild(btn);
+  });
 }
 
 function renderWatchHits() {
@@ -178,8 +208,9 @@ function renderStore(store) {
     (byCat[cat] = byCat[cat] || []).push(p);
   });
 
-  // 区分順に描画。商品ゼロの区分は表示しない(byCatに無いのでスキップ)。
+  // 区分順に描画。商品ゼロ、または表示OFFの区分はスキップ。
   CATEGORY_ORDER.forEach((cat) => {
+    if (App.catVisible[cat] === false) return;
     if (byCat[cat] && byCat[cat].length) card.appendChild(renderCategory(store, cat, byCat[cat], false));
   });
   if (byCat["その他"] && byCat["その他"].length) {
@@ -367,23 +398,16 @@ function openHiddenManager() {
 /* ---------- レシピモーダル ---------- */
 let _recipeCtx = null; // 現在開いているレシピ文脈
 
-function openRecipes(p) {
-  $("recipeTitle").textContent = `「${p.name}」のレシピ`;
-  const body = $("recipeBody");
-  body.innerHTML = "";
-  _recipeCtx = { product: p };
-
-  const recipes = p.recipes || [];
-  if (!recipes.length) {
-    $("recipeNote").hidden = true;
-    document.querySelector(".recipe-controls").hidden = true;
-    const q = encodeURIComponent(p.name);
-    body.innerHTML =
-      `<div class="recipe-empty">事前取得したレシピがありません。<br>` +
-      `<a href="https://recipe.rakuten.co.jp/search/${q}/" target="_blank" rel="noopener">楽天レシピで「${esc(p.name)}」を検索 ↗</a></div>`;
-    showModal("recipeModal");
-    return;
+function findProductByName(name) {
+  for (const s of App.data.stores || []) {
+    const p = (s.products || []).find((pp) => pp.name === name);
+    if (p) return p;
   }
+  return null;
+}
+
+function openRecipes(p) {
+  _recipeCtx = { product: p };
   document.querySelector(".recipe-controls").hidden = false;
 
   // プルダウンの選択肢: 全店舗の商品名(重複排除)
@@ -402,6 +426,7 @@ function openRecipes(p) {
   fillRecipeSelect($("recipeSel1"), allNames, p.name, false);
   fillRecipeSelect($("recipeSel2"), allNames, sel2Default, true);
 
+  // プルダウン変更で即レシピを再検索・再表示する
   $("recipeSel1").onchange = renderRecipeList;
   $("recipeSel2").onchange = renderRecipeList;
 
@@ -424,17 +449,32 @@ function fillRecipeSelect(sel, names, selected, allowNone) {
   });
 }
 
-// プルダウン2つの商品でレシピを優先表示する
+// プルダウン①の商品のレシピを検索し、②の商品も使うものを優先表示する
 function renderRecipeList() {
-  const p = _recipeCtx.product;
   const body = $("recipeBody");
   body.innerHTML = "";
 
   const v1 = $("recipeSel1").value;
   const v2 = $("recipeSel2").value;
-  const targets = [v1, v2].filter(Boolean);
 
-  const scored = (p.recipes || []).map((r) => {
+  // ①の商品のレシピを基準にする(=①変更で再検索)
+  const base = findProductByName(v1) || _recipeCtx.product;
+  $("recipeTitle").textContent = `「${v1 || base.name}」のレシピ`;
+  const recipes = base.recipes || [];
+
+  if (!recipes.length) {
+    $("recipeNote").hidden = true;
+    const q = encodeURIComponent(v1 || base.name);
+    body.innerHTML =
+      `<div class="recipe-empty">「${esc(v1 || base.name)}」の事前取得レシピがありません。<br>` +
+      `<a href="https://recipe.rakuten.co.jp/search/${q}/" target="_blank" rel="noopener">楽天レシピで検索 ↗</a></div>`;
+    return;
+  }
+
+  // 優先判定は②の商品(①は基準なので大半が一致するため②を強調)
+  const targets = [v2].filter(Boolean);
+
+  const scored = recipes.map((r) => {
     const title = r.title || "";
     const hits = targets.filter((n) => title.includes(n));
     return { r, hits };

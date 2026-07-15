@@ -7,25 +7,23 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#e60012">
-  <link rel="stylesheet" href="css/app.css?v=6">
+  <link rel="stylesheet" href="css/app.css?v=7">
 </head>
 <body>
   <header class="app-header">
     <div class="header-row">
       <h1>🛒 チラシまとめ</h1>
       <div class="header-actions">
-        <button id="btnSend" class="btn btn-line" title="選択した商品をLINEへ送信">
-          LINEへ送信 <span id="selCount" class="badge">0</span>
-        </button>
-        <button id="btnHidden" class="btn btn-ghost" title="非表示中の商品を管理">🚫<span id="hiddenCount" class="badge" hidden>0</span></button>
+        <button id="btnSend" class="btn btn-line" title="選択した商品をLINE送信">LINE送信</button>
+        <button id="btnHidden" class="btn btn-ghost" title="非表示中の商品を管理">非表示中 <span id="hiddenCount" class="badge" hidden>0</span></button>
         <button id="btnSettings" class="btn btn-ghost" title="設定">⚙</button>
       </div>
     </div>
-    <div id="dateLabel" class="date-label"></div>
   </header>
 
   <main id="main">
     <div id="loading" class="loading">読み込み中…</div>
+    <div id="catFilter" class="cat-filter"></div>
     <div id="watchHits" class="watch-hits" hidden></div>
     <div id="stores"></div>
   </main>
@@ -121,6 +119,6 @@
     <img id="imageModalImg" src="" alt="チラシ画像">
   </div>
 
-  <script src="js/app.js?v=6"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>
