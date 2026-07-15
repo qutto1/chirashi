@@ -7,7 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#e60012">
-  <link rel="stylesheet" href="css/app.css?v=3">
+  <link rel="stylesheet" href="css/app.css?v=4">
 </head>
 <body>
   <header class="app-header">
@@ -52,6 +52,18 @@
           <button id="btnAddWatch" class="btn btn-primary">追加</button>
         </div>
         <ul id="watchList" class="watch-list"></ul>
+      </section>
+
+      <section class="setting-section">
+        <h3>LINE送信の宛先（GAS中継）</h3>
+        <p class="hint">
+          「LINEへ送信」を通知先（毎朝の登録ユーザー）へ直接送るための中継URLです。
+          <code>gas/line-relay.gs</code> の手順でGoogle AppsScriptをデプロイし、
+          ウェブアプリのURLと共有シークレットを入力してください。この端末にのみ保存されます。
+          未設定の場合は送信先を選ぶ共有画面が開きます。
+        </p>
+        <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
+        <input type="password" id="gasSecret" placeholder="共有シークレット" autocomplete="off" style="margin-top:6px">
       </section>
 
       <section class="setting-section">
@@ -100,6 +112,6 @@
     <img id="imageModalImg" src="" alt="チラシ画像">
   </div>
 
-  <script src="js/app.js?v=3"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>

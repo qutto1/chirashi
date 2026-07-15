@@ -179,6 +179,7 @@ table.products td {
 .col-add { width: 30px; text-align: center; }
 .col-origin { width: 42px; white-space: nowrap; }
 .col-name { word-break: break-word; }
+.col-unit { width: 46px; text-align: right; white-space: nowrap; font-size: 10px; color: var(--muted); }
 .col-price { width: 62px; text-align: right; white-space: nowrap; font-weight: 700; }
 .col-hide { width: 62px; text-align: center; }
 
@@ -356,6 +357,26 @@ input[type="time"], input[type="text"], input[type="password"] {
 }
 .recipe-card .btn-line { border-radius: 0; font-size: 12px; padding: 6px; }
 .recipe-empty { color: var(--muted); font-size: 14px; padding: 16px 0; grid-column: 1 / -1; text-align: center; }
+
+/* ---------- トースト ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(28,30,34,.95);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  max-width: 90%;
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ---------- 画像モーダル ---------- */
 .image-modal { align-items: center; background: rgba(0,0,0,.85); }

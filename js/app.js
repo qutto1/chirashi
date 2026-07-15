@@ -13,6 +13,8 @@ const LS = {
   selectedDate: "chirashi.selectedDate",
   ghToken: "chirashi.ghToken",
   hidden: "chirashi.hidden", // key -> 期限(epoch ms)
+  gasUrl: "chirashi.gasUrl",
+  gasSecret: "chirashi.gasSecret",
 };
 
 const App = {
@@ -250,6 +252,9 @@ function buildRow(store, p) {
     tdName.appendChild(el("span", "period-badge", esc(p.period)));
   }
 
+  // 価格単位(商品名と価格の間)
+  const tdUnit = el("td", "col-unit", esc(p.unit || ""));
+
   // 価格
   const tdPrice = el("td", "col-price", esc(p.price || ""));
 
@@ -264,7 +269,7 @@ function buildRow(store, p) {
   });
   tdHide.appendChild(hideBtn);
 
-  tr.append(tdAdd, tdOrigin, tdName, tdPrice, tdHide);
+  tr.append(tdAdd, tdOrigin, tdName, tdUnit, tdPrice, tdHide);
   return tr;
 }
 
@@ -275,7 +280,7 @@ function toggleSelect(store, p, tr, btn) {
     tr.classList.remove("selected");
     btn.textContent = "＋";
   } else {
-    App.selected[key] = { store: store.name, name: p.name, price: p.price || "" };
+    App.selected[key] = { store: store.name, name: p.name, unit: p.unit || "", price: p.price || "" };
     tr.classList.add("selected");
     btn.textContent = "✓";
   }
@@ -294,15 +299,52 @@ function sendSelectedToLine() {
   items.forEach((it) => (byStore[it.store] = byStore[it.store] || []).push(it));
   Object.keys(byStore).forEach((s) => {
     lines.push(`【${s}】`);
-    byStore[s].forEach((it) => lines.push(`・${it.name}  ${it.price}`));
+    byStore[s].forEach((it) => lines.push(`・${it.name}  ${it.unit ? it.unit + " " : ""}${it.price}`));
     lines.push("");
   });
   shareToLine(lines.join("\n").trim());
 }
 
-function shareToLine(text) {
+// LINE送信: GAS中継が設定済みなら通知先へ直接プッシュ、未設定なら共有ピッカー。
+async function shareToLine(text) {
+  const gasUrl = localStorage.getItem(LS.gasUrl);
+  const gasSecret = localStorage.getItem(LS.gasSecret) || "";
+  if (gasUrl) {
+    try {
+      // text/plain にして preflight(OPTIONS) を避ける(GASはCORSプリフライト非対応)
+      const res = await fetch(gasUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ secret: gasSecret, text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        toast("LINEに送信しました（通知先へ）");
+      } else {
+        toast("送信に失敗しました: " + (data.error || data.status || "不明"));
+      }
+    } catch (e) {
+      console.error(e);
+      toast("送信に失敗しました（中継URLを確認してください）");
+    }
+    return;
+  }
+  // フォールバック: 共有ピッカー
   const url = "https://line.me/R/share?text=" + encodeURIComponent(text);
   window.open(url, "_blank", "noopener");
+}
+
+function toast(msg) {
+  let t = document.getElementById("toast");
+  if (!t) {
+    t = el("div", "toast");
+    t.id = "toast";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
 /* ---------- 非表示管理モーダル ---------- */
@@ -389,6 +431,8 @@ function openImage(src) {
 function openSettings() {
   $("notifyTime").value = App.settings.notify_time || "08:00";
   $("ghToken").value = localStorage.getItem(LS.ghToken) || "";
+  $("gasUrl").value = localStorage.getItem(LS.gasUrl) || "";
+  $("gasSecret").value = localStorage.getItem(LS.gasSecret) || "";
   renderWatchList();
   $("saveStatus").textContent = "";
   showModal("settingsModal");
@@ -427,6 +471,12 @@ async function saveSettings() {
   App.settings.notify_time = $("notifyTime").value || "08:00";
   const token = $("ghToken").value.trim();
   if (token) localStorage.setItem(LS.ghToken, token);
+
+  // GAS中継設定(端末ローカル保存)
+  const gasUrl = $("gasUrl").value.trim();
+  const gasSecret = $("gasSecret").value.trim();
+  if (gasUrl) localStorage.setItem(LS.gasUrl, gasUrl); else localStorage.removeItem(LS.gasUrl);
+  if (gasSecret) localStorage.setItem(LS.gasSecret, gasSecret); else localStorage.removeItem(LS.gasSecret);
 
   const status = $("saveStatus");
   if (!token) {
