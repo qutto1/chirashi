@@ -170,18 +170,6 @@ function renderStore(store) {
     (store.url ? `<a href="${esc(store.url)}" target="_blank" rel="noopener">元のチラシページを開く ↗</a>` : "");
   card.appendChild(head);
 
-  if (store.flyer_images && store.flyer_images.length) {
-    const thumbs = el("div", "flyer-thumbs");
-    store.flyer_images.forEach((src) => {
-      const img = el("img");
-      img.src = src;
-      img.loading = "lazy";
-      img.addEventListener("click", () => openImage(src));
-      thumbs.appendChild(img);
-    });
-    card.appendChild(thumbs);
-  }
-
   // 非表示中の商品を除外して区分ごとにグループ化
   const byCat = {};
   (store.products || []).forEach((p) => {
@@ -232,57 +220,50 @@ function buildRow(store, p) {
   if (App.selected[key]) tr.classList.add("selected");
   if (isWatched(p.name)) tr.classList.add("watch");
 
-  // 追加ボタン
-  const tdAdd = el("td", "col-add");
-  const btn = el("button", "add-btn", App.selected[key] ? "✓" : "＋");
-  btn.addEventListener("click", () => toggleSelect(store, p, tr, btn));
-  tdAdd.appendChild(btn);
-
-  // 産地 (国内/国外のみ、不明は空)
+  // 産地 (国産/国外のみ、不明は空)
   const tdOrigin = el("td", "col-origin");
-  if (p.origin === "国内") tdOrigin.innerHTML = `<span class="origin-tag origin-jp">国内</span>`;
+  if (p.origin === "国内") tdOrigin.innerHTML = `<span class="origin-tag origin-jp">国産</span>`;
   else if (p.origin === "国外") tdOrigin.innerHTML = `<span class="origin-tag origin-fr">国外</span>`;
 
   // 商品名(レシピリンク) + 連日なら期間バッジ("本日のみ"は非表示)
   const tdName = el("td", "col-name");
   const a = el("a", "prod-name", esc(p.name));
-  a.addEventListener("click", () => openRecipes(p));
+  a.addEventListener("click", (e) => { e.stopPropagation(); openRecipes(p); });
   tdName.appendChild(a);
   if (p.period && p.period !== "本日のみ") {
     tdName.appendChild(el("span", "period-badge", esc(p.period)));
   }
 
-  // 価格単位(商品名と価格の間)
-  const tdUnit = el("td", "col-unit", esc(p.unit || ""));
-
-  // 価格
+  // 価格 → 量(単位) の順 (値段と量を入れ替え)
   const tdPrice = el("td", "col-price", esc(p.price || ""));
+  const tdUnit = el("td", "col-unit", esc(p.unit || ""));
 
   // 3日間非表示ボタン
   const tdHide = el("td", "col-hide");
   const hideBtn = el("button", "hide-btn", "3日間非表示");
-  hideBtn.addEventListener("click", () => {
-    // 選択中なら解除してから非表示
+  hideBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
     if (App.selected[key]) { delete App.selected[key]; saveSelected(); }
     hideProduct(key);
     tr.remove();
   });
   tdHide.appendChild(hideBtn);
 
-  tr.append(tdAdd, tdOrigin, tdName, tdUnit, tdPrice, tdHide);
+  // 行クリックで選択トグル(商品名リンク・非表示ボタンを除く)
+  tr.addEventListener("click", () => toggleSelect(store, p, tr));
+
+  tr.append(tdOrigin, tdName, tdPrice, tdUnit, tdHide);
   return tr;
 }
 
-function toggleSelect(store, p, tr, btn) {
+function toggleSelect(store, p, tr) {
   const key = prodKey(store.id, p.name);
   if (App.selected[key]) {
     delete App.selected[key];
     tr.classList.remove("selected");
-    btn.textContent = "＋";
   } else {
     App.selected[key] = { store: store.name, name: p.name, unit: p.unit || "", price: p.price || "" };
     tr.classList.add("selected");
-    btn.textContent = "✓";
   }
   saveSelected();
 }
@@ -384,13 +365,18 @@ function openHiddenManager() {
 }
 
 /* ---------- レシピモーダル ---------- */
+let _recipeCtx = null; // 現在開いているレシピ文脈
+
 function openRecipes(p) {
   $("recipeTitle").textContent = `「${p.name}」のレシピ`;
   const body = $("recipeBody");
   body.innerHTML = "";
+  _recipeCtx = { product: p };
 
   const recipes = p.recipes || [];
   if (!recipes.length) {
+    $("recipeNote").hidden = true;
+    document.querySelector(".recipe-controls").hidden = true;
     const q = encodeURIComponent(p.name);
     body.innerHTML =
       `<div class="recipe-empty">事前取得したレシピがありません。<br>` +
@@ -398,25 +384,67 @@ function openRecipes(p) {
     showModal("recipeModal");
     return;
   }
+  document.querySelector(".recipe-controls").hidden = false;
 
-  // 選択中(買い物リスト)の他の商品名を集め、レシピタイトルに含まれるものを優先表示する
-  const otherNames = Object.values(App.selected)
-    .map((s) => s.name)
-    .filter((n) => n && n !== p.name);
+  // プルダウンの選択肢: 全店舗の商品名(重複排除)
+  const allNames = [];
+  const seen = new Set();
+  (App.data.stores || []).forEach((s) =>
+    (s.products || []).forEach((pp) => {
+      if (!seen.has(pp.name)) { seen.add(pp.name); allNames.push(pp.name); }
+    })
+  );
 
-  const scored = recipes.map((r) => {
+  // 初期値: ①=クリックした商品、②=選択中(買い物リスト)の一番上
+  const firstSelected = Object.values(App.selected)[0];
+  const sel2Default = firstSelected ? firstSelected.name : "";
+
+  fillRecipeSelect($("recipeSel1"), allNames, p.name, false);
+  fillRecipeSelect($("recipeSel2"), allNames, sel2Default, true);
+
+  $("recipeSel1").onchange = renderRecipeList;
+  $("recipeSel2").onchange = renderRecipeList;
+
+  renderRecipeList();
+  showModal("recipeModal");
+}
+
+function fillRecipeSelect(sel, names, selected, allowNone) {
+  sel.innerHTML = "";
+  if (allowNone) {
+    const o = el("option", null, "（なし）");
+    o.value = "";
+    sel.appendChild(o);
+  }
+  names.forEach((n) => {
+    const o = el("option", null, esc(n));
+    o.value = n;
+    if (n === selected) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+// プルダウン2つの商品でレシピを優先表示する
+function renderRecipeList() {
+  const p = _recipeCtx.product;
+  const body = $("recipeBody");
+  body.innerHTML = "";
+
+  const v1 = $("recipeSel1").value;
+  const v2 = $("recipeSel2").value;
+  const targets = [v1, v2].filter(Boolean);
+
+  const scored = (p.recipes || []).map((r) => {
     const title = r.title || "";
-    const hits = otherNames.filter((n) => title.includes(n));
+    const hits = targets.filter((n) => title.includes(n));
     return { r, hits };
   });
-  // タイトルに選択商品を多く含むものを先頭へ(安定ソート)
   scored.sort((a, b) => b.hits.length - a.hits.length);
 
-  const anyHit = scored.some((s) => s.hits.length > 0);
   const note = $("recipeNote");
-  if (anyHit) {
+  if (scored.some((s) => s.hits.length > 0)) {
     note.hidden = false;
-    note.textContent = "🛒 選択中の商品も使えるレシピを上に表示しています";
+    note.textContent = "🛒 選んだ商品を使うレシピを上に表示しています";
   } else {
     note.hidden = true;
   }
@@ -425,9 +453,8 @@ function openRecipes(p) {
     const card = el("div", "recipe-card");
     if (hits.length) card.classList.add("recipe-match");
 
-    // サムネイル: クリックで別タブでレシピを開く
     if (r.thumb) {
-      const link = el("a");
+      const link = el("a", "rc-thumb");
       link.href = r.url;
       link.target = "_blank";
       link.rel = "noopener";
@@ -438,7 +465,6 @@ function openRecipes(p) {
       card.appendChild(link);
     }
 
-    // 選択中商品が使えるバッジ
     if (hits.length) {
       card.appendChild(el("div", "rc-match-tag", "🛒 " + hits.map(esc).join("・") + " も使える"));
     }
@@ -454,7 +480,6 @@ function openRecipes(p) {
     card.appendChild(send);
     body.appendChild(card);
   });
-  showModal("recipeModal");
 }
 
 /* ---------- 画像モーダル ---------- */

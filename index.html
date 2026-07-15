@@ -7,7 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#e60012">
-  <link rel="stylesheet" href="css/app.css?v=5">
+  <link rel="stylesheet" href="css/app.css?v=6">
 </head>
 <body>
   <header class="app-header">
@@ -102,6 +102,14 @@
         <h2 id="recipeTitle">レシピ</h2>
         <button id="btnCloseRecipe" class="btn btn-ghost">✕</button>
       </div>
+      <div class="recipe-controls">
+        <label class="rc-ctrl">優先する商品①
+          <select id="recipeSel1"></select>
+        </label>
+        <label class="rc-ctrl">優先する商品②
+          <select id="recipeSel2"></select>
+        </label>
+      </div>
       <div id="recipeNote" class="recipe-note" hidden></div>
       <div id="recipeBody" class="recipe-body"></div>
     </div>
@@ -113,6 +121,6 @@
     <img id="imageModalImg" src="" alt="チラシ画像">
   </div>
 
-  <script src="js/app.js?v=5"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>
