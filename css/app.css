@@ -338,6 +338,15 @@ input[type="time"], input[type="text"], input[type="password"] {
 }
 
 /* ---------- レシピ ---------- */
+.recipe-note {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  color: #8a6d00;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  margin: 6px 0 2px;
+}
 .recipe-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
 .recipe-card {
   border: 1px solid var(--border);
@@ -346,7 +355,16 @@ input[type="time"], input[type="text"], input[type="password"] {
   display: flex;
   flex-direction: column;
 }
-.recipe-card img { width: 100%; height: 96px; object-fit: cover; background: #eee; }
+.recipe-card.recipe-match { border-color: var(--line-green); box-shadow: 0 0 0 1px var(--line-green) inset; }
+.recipe-card > a { display: block; line-height: 0; }
+.recipe-card img { width: 100%; height: 96px; object-fit: cover; background: #eee; cursor: pointer; }
+.rc-match-tag {
+  font-size: 11px;
+  color: #067d4a;
+  background: #e7f7ee;
+  padding: 3px 6px;
+  line-height: 1.3;
+}
 .recipe-card .rc-title {
   font-size: 12px;
   padding: 6px;

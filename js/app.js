@@ -399,14 +399,50 @@ function openRecipes(p) {
     return;
   }
 
-  recipes.forEach((r) => {
+  // 選択中(買い物リスト)の他の商品名を集め、レシピタイトルに含まれるものを優先表示する
+  const otherNames = Object.values(App.selected)
+    .map((s) => s.name)
+    .filter((n) => n && n !== p.name);
+
+  const scored = recipes.map((r) => {
+    const title = r.title || "";
+    const hits = otherNames.filter((n) => title.includes(n));
+    return { r, hits };
+  });
+  // タイトルに選択商品を多く含むものを先頭へ(安定ソート)
+  scored.sort((a, b) => b.hits.length - a.hits.length);
+
+  const anyHit = scored.some((s) => s.hits.length > 0);
+  const note = $("recipeNote");
+  if (anyHit) {
+    note.hidden = false;
+    note.textContent = "🛒 選択中の商品も使えるレシピを上に表示しています";
+  } else {
+    note.hidden = true;
+  }
+
+  scored.forEach(({ r, hits }) => {
     const card = el("div", "recipe-card");
+    if (hits.length) card.classList.add("recipe-match");
+
+    // サムネイル: クリックで別タブでレシピを開く
     if (r.thumb) {
+      const link = el("a");
+      link.href = r.url;
+      link.target = "_blank";
+      link.rel = "noopener";
       const img = el("img");
       img.src = r.thumb;
       img.loading = "lazy";
-      card.appendChild(img);
+      link.appendChild(img);
+      card.appendChild(link);
     }
+
+    // 選択中商品が使えるバッジ
+    if (hits.length) {
+      card.appendChild(el("div", "rc-match-tag", "🛒 " + hits.map(esc).join("・") + " も使える"));
+    }
+
     const a = el("a", "rc-title", esc(r.title || "レシピ"));
     a.href = r.url;
     a.target = "_blank";
