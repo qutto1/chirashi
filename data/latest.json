@@ -1,0 +1,45 @@
+{
+  "date": "2026-07-15",
+  "generated_at": "2026-07-15T08:00:00+09:00",
+  "watch_hits": [],
+  "stores": [
+    {
+      "id": "osakaya",
+      "name": "大阪屋ショップ 出来田店",
+      "url": "https://tokubai.co.jp/%E5%A4%A7%E9%98%AA%E5%B1%8B%E3%82%B7%E3%83%A7%E3%83%83%E3%83%97/173985",
+      "flyer_images": [],
+      "products": [
+        { "name": "ミニトマト", "price": "98円", "category": "野菜", "origin": "国内", "period": "本日のみ", "recipes": [] },
+        { "name": "ズッキーニ", "price": "98円", "category": "野菜", "origin": "国内", "period": "連日", "recipes": [] },
+        { "name": "びんちょうまぐろ刺身用", "price": "298円", "category": "鮮魚", "origin": "国外", "period": "本日のみ", "recipes": [] },
+        { "name": "サーモントラウト刺身用", "price": "378円", "category": "鮮魚", "origin": "国外", "period": "本日のみ", "recipes": [] },
+        { "name": "黒毛匠牛肩ロースうす切り", "price": "598円", "category": "肉", "origin": "国内", "period": "連日", "recipes": [] },
+        { "name": "豚モモ切り落とし", "price": "148円", "category": "肉", "origin": "国内", "period": "本日のみ", "recipes": [] },
+        { "name": "デラウェア", "price": "498円", "category": "その他", "origin": "国内", "period": "本日のみ", "recipes": [] }
+      ]
+    },
+    {
+      "id": "aeon",
+      "name": "イオンスタイル高岡南",
+      "url": "https://www.aeon.com/store/%E3%82%A4%E3%82%AA%E3%83%B3/%E3%82%A4%E3%82%AA%E3%83%B3%E3%82%B9%E3%82%BF%E3%82%A4%E3%83%AB%E9%AB%98%E5%B2%A1%E5%8D%97/flyer/",
+      "flyer_images": [],
+      "products": [
+        { "name": "レタス", "price": "128円", "category": "野菜", "origin": "国内", "period": "本日のみ", "recipes": [] },
+        { "name": "アボカド", "price": "98円", "category": "野菜", "origin": "国外", "period": "連日", "recipes": [] },
+        { "name": "刺身盛り合わせ", "price": "580円", "category": "鮮魚", "origin": "", "period": "本日のみ", "recipes": [] },
+        { "name": "国産豚バラ肉", "price": "138円", "category": "肉", "origin": "国内", "period": "連日", "recipes": [] }
+      ]
+    },
+    {
+      "id": "lamu",
+      "name": "ラ・ムー高岡東店",
+      "url": "https://www.dkt-s.com/map.html?id=2018",
+      "flyer_images": [],
+      "products": [
+        { "name": "きゅうり", "price": "58円", "category": "野菜", "origin": "国内", "period": "本日のみ", "recipes": [] },
+        { "name": "あじ", "price": "98円", "category": "鮮魚", "origin": "国内", "period": "本日のみ", "recipes": [] },
+        { "name": "鶏むね肉", "price": "58円", "category": "肉", "origin": "国外", "period": "連日", "recipes": [] }
+      ]
+    }
+  ]
+}

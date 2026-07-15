@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>チラシまとめ</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#e60012">
+  <link rel="stylesheet" href="css/app.css?v=1">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-row">
+      <h1>🛒 チラシまとめ</h1>
+      <div class="header-actions">
+        <button id="btnSend" class="btn btn-line" title="選択した商品をLINEへ送信">
+          LINEへ送信 <span id="selCount" class="badge">0</span>
+        </button>
+        <button id="btnSettings" class="btn btn-ghost" title="設定">⚙</button>
+      </div>
+    </div>
+    <div id="dateLabel" class="date-label"></div>
+  </header>
+
+  <main id="main">
+    <div id="loading" class="loading">読み込み中…</div>
+    <div id="watchHits" class="watch-hits" hidden></div>
+    <div id="stores"></div>
+  </main>
+
+  <!-- 設定モーダル -->
+  <div id="settingsModal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>⚙ 設定</h2>
+        <button id="btnCloseSettings" class="btn btn-ghost">✕</button>
+      </div>
+
+      <section class="setting-section">
+        <h3>通知時刻</h3>
+        <p class="hint">毎朝この時刻にLINEへ通知します。</p>
+        <input type="time" id="notifyTime" value="08:00">
+      </section>
+
+      <section class="setting-section">
+        <h3>常時チェックする商品</h3>
+        <p class="hint">登録した語句がチラシに載っていると通知に含め、<b class="watch-em">赤字・太字</b>で強調します。</p>
+        <div class="watch-input-row">
+          <input type="text" id="watchInput" placeholder="例: 牛乳">
+          <button id="btnAddWatch" class="btn btn-primary">追加</button>
+        </div>
+        <ul id="watchList" class="watch-list"></ul>
+      </section>
+
+      <section class="setting-section">
+        <h3>保存用トークン (GitHub PAT)</h3>
+        <p class="hint">
+          設定を保存するには、このリポジトリの Contents:Read/Write 権限を持つ
+          fine-grained Personal Access Token が必要です。この端末にのみ保存されます。
+          未設定でも閲覧はできます。
+        </p>
+        <input type="password" id="ghToken" placeholder="github_pat_..." autocomplete="off">
+      </section>
+
+      <div class="modal-foot">
+        <span id="saveStatus" class="save-status"></span>
+        <button id="btnSaveSettings" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- レシピモーダル -->
+  <div id="recipeModal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="recipeTitle">レシピ</h2>
+        <button id="btnCloseRecipe" class="btn btn-ghost">✕</button>
+      </div>
+      <div id="recipeBody" class="recipe-body"></div>
+    </div>
+  </div>
+
+  <!-- 画像拡大モーダル -->
+  <div id="imageModal" class="modal image-modal" hidden>
+    <button id="btnCloseImage" class="btn btn-ghost image-close">✕</button>
+    <img id="imageModalImg" src="" alt="チラシ画像">
+  </div>
+
+  <script src="js/app.js?v=1"></script>
+</body>
+</html>
