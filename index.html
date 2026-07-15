@@ -7,7 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#e60012">
-  <link rel="stylesheet" href="css/app.css?v=2">
+  <link rel="stylesheet" href="css/app.css?v=3">
 </head>
 <body>
   <header class="app-header">
@@ -17,6 +17,7 @@
         <button id="btnSend" class="btn btn-line" title="選択した商品をLINEへ送信">
           LINEへ送信 <span id="selCount" class="badge">0</span>
         </button>
+        <button id="btnHidden" class="btn btn-ghost" title="非表示中の商品を管理">🚫<span id="hiddenCount" class="badge" hidden>0</span></button>
         <button id="btnSettings" class="btn btn-ghost" title="設定">⚙</button>
       </div>
     </div>
@@ -70,6 +71,18 @@
     </div>
   </div>
 
+  <!-- 非表示管理モーダル -->
+  <div id="hiddenModal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>🚫 非表示中の商品</h2>
+        <button id="btnCloseHidden" class="btn btn-ghost">✕</button>
+      </div>
+      <p class="hint">「3日間非表示」にした商品の一覧です。期限が切れると自動で再表示されます。</p>
+      <ul id="hiddenList" class="hidden-list"></ul>
+    </div>
+  </div>
+
   <!-- レシピモーダル -->
   <div id="recipeModal" class="modal" hidden>
     <div class="modal-box">
@@ -87,6 +100,6 @@
     <img id="imageModalImg" src="" alt="チラシ画像">
   </div>
 
-  <script src="js/app.js?v=1"></script>
+  <script src="js/app.js?v=3"></script>
 </body>
 </html>

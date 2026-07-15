@@ -1,15 +1,18 @@
 /* チラシまとめ Webアプリ
- * data/latest.json を読んで3店舗のチラシ情報を表示する静的SPA。
- * 買い物リスト選択・設定は localStorage、設定の保存は GitHub Contents API。
+ * data/latest.json を読んで4店舗のチラシ情報を表示する静的SPA。
+ * 買い物リスト選択・非表示設定は localStorage、設定の保存は GitHub Contents API。
  */
 "use strict";
 
 const REPO = "qutto1/chirashi";
-const CATEGORY_ORDER = ["野菜", "鮮魚", "肉"];
+const CATEGORY_ORDER = ["米・パン", "野菜", "鮮魚", "肉"];
+const CAT_CLASS = { "米・パン": "cat-rice", 野菜: "cat-veg", 鮮魚: "cat-fish", 肉: "cat-meat", その他: "cat-other" };
+const HIDE_DAYS = 3;
 const LS = {
   selected: "chirashi.selected",
   selectedDate: "chirashi.selectedDate",
   ghToken: "chirashi.ghToken",
+  hidden: "chirashi.hidden", // key -> 期限(epoch ms)
 };
 
 const App = {
@@ -17,6 +20,7 @@ const App = {
   settings: { notify_time: "08:00", watch_items: [] },
   settingsSha: null,
   selected: {}, // key -> {store, name, price}
+  hidden: {},   // key -> expiryMs
 };
 
 /* ---------- ユーティリティ ---------- */
@@ -36,6 +40,7 @@ const prodKey = (storeId, name) => `${storeId}::${name}`;
 /* ---------- 起動 ---------- */
 async function init() {
   loadSelected();
+  loadHidden();
   bindUI();
   await Promise.all([loadSettings(), loadData()]);
   render();
@@ -65,7 +70,6 @@ async function loadSettings() {
 function loadSelected() {
   const today = new Date().toISOString().slice(0, 10);
   if (localStorage.getItem(LS.selectedDate) !== today) {
-    // 日付が変わったら選択をリセット
     localStorage.setItem(LS.selectedDate, today);
     localStorage.removeItem(LS.selected);
     App.selected = {};
@@ -85,9 +89,51 @@ function updateSelCount() {
   $("selCount").textContent = Object.keys(App.selected).length;
 }
 
+/* ---------- 3日間非表示(localStorage) ---------- */
+function loadHidden() {
+  try {
+    App.hidden = JSON.parse(localStorage.getItem(LS.hidden) || "{}");
+  } catch {
+    App.hidden = {};
+  }
+  // 期限切れを掃除
+  const now = Date.now();
+  let changed = false;
+  for (const k of Object.keys(App.hidden)) {
+    if (App.hidden[k] <= now) {
+      delete App.hidden[k];
+      changed = true;
+    }
+  }
+  if (changed) saveHidden();
+}
+function saveHidden() {
+  localStorage.setItem(LS.hidden, JSON.stringify(App.hidden));
+  updateHiddenCount();
+}
+function isHidden(key) {
+  const exp = App.hidden[key];
+  return exp && exp > Date.now();
+}
+function hideProduct(key) {
+  App.hidden[key] = Date.now() + HIDE_DAYS * 86400000;
+  saveHidden();
+}
+function unhideProduct(key) {
+  delete App.hidden[key];
+  saveHidden();
+}
+function updateHiddenCount() {
+  const n = Object.keys(App.hidden).length;
+  const badge = $("hiddenCount");
+  badge.textContent = n;
+  badge.hidden = n === 0;
+}
+
 /* ---------- 描画 ---------- */
 function render() {
   updateSelCount();
+  updateHiddenCount();
   if (!App.data) return;
   $("loading").hidden = true;
 
@@ -122,7 +168,6 @@ function renderStore(store) {
     (store.url ? `<a href="${esc(store.url)}" target="_blank" rel="noopener">元のチラシページを開く ↗</a>` : "");
   card.appendChild(head);
 
-  // チラシ画像サムネイル
   if (store.flyer_images && store.flyer_images.length) {
     const thumbs = el("div", "flyer-thumbs");
     store.flyer_images.forEach((src) => {
@@ -135,56 +180,36 @@ function renderStore(store) {
     card.appendChild(thumbs);
   }
 
-  // 区分ごとにグループ化
+  // 非表示中の商品を除外して区分ごとにグループ化
   const byCat = {};
   (store.products || []).forEach((p) => {
+    if (isHidden(prodKey(store.id, p.name))) return;
     const cat = CATEGORY_ORDER.includes(p.category) ? p.category : "その他";
     (byCat[cat] = byCat[cat] || []).push(p);
   });
 
+  // 区分順に描画。商品ゼロの区分は表示しない(byCatに無いのでスキップ)。
   CATEGORY_ORDER.forEach((cat) => {
-    if (byCat[cat]) card.appendChild(renderCategory(store, cat, byCat[cat], false));
+    if (byCat[cat] && byCat[cat].length) card.appendChild(renderCategory(store, cat, byCat[cat], false));
   });
-  if (byCat["その他"]) card.appendChild(renderCategory(store, "その他", byCat["その他"], true));
+  if (byCat["その他"] && byCat["その他"].length) {
+    card.appendChild(renderCategory(store, "その他", byCat["その他"], true));
+  }
 
   return card;
 }
 
-const CAT_CLASS = { 野菜: "cat-veg", 鮮魚: "cat-fish", 肉: "cat-meat", その他: "cat-other" };
-
 function renderCategory(store, cat, products, collapsed) {
   if (collapsed) {
     const details = el("details", "cat-other");
-    const summary = el("summary", null, `その他 (${products.length}品)`);
-    details.appendChild(summary);
-    details.appendChild(buildPeriodGroups(store, products));
+    details.appendChild(el("summary", null, `その他 (${products.length}品)`));
+    details.appendChild(buildTable(store, products));
     return details;
   }
   const sec = el("div", "cat-section " + CAT_CLASS[cat]);
   sec.appendChild(el("div", "cat-title", `${cat} (${products.length}品)`));
-  sec.appendChild(buildPeriodGroups(store, products));
+  sec.appendChild(buildTable(store, products));
   return sec;
-}
-
-// 「本日のみ」と「連日」に分けて表示
-function buildPeriodGroups(store, products) {
-  const frag = document.createDocumentFragment();
-  const today = products.filter((p) => p.period === "本日のみ");
-  const multi = products.filter((p) => p.period !== "本日のみ");
-
-  if (today.length) {
-    const g = el("div", "period-group");
-    g.appendChild(el("span", "period-label today", "本日のみ"));
-    g.appendChild(buildTable(store, today));
-    frag.appendChild(g);
-  }
-  if (multi.length) {
-    const g = el("div", "period-group");
-    g.appendChild(el("span", "period-label multi", "連日"));
-    g.appendChild(buildTable(store, multi));
-    frag.appendChild(g);
-  }
-  return frag;
 }
 
 function buildTable(store, products) {
@@ -216,16 +241,30 @@ function buildRow(store, p) {
   if (p.origin === "国内") tdOrigin.innerHTML = `<span class="origin-tag origin-jp">国内</span>`;
   else if (p.origin === "国外") tdOrigin.innerHTML = `<span class="origin-tag origin-fr">国外</span>`;
 
-  // 商品名 (レシピリンク)
+  // 商品名(レシピリンク) + 連日なら期間バッジ("本日のみ"は非表示)
   const tdName = el("td", "col-name");
   const a = el("a", "prod-name", esc(p.name));
   a.addEventListener("click", () => openRecipes(p));
   tdName.appendChild(a);
+  if (p.period && p.period !== "本日のみ") {
+    tdName.appendChild(el("span", "period-badge", esc(p.period)));
+  }
 
   // 価格
   const tdPrice = el("td", "col-price", esc(p.price || ""));
 
-  tr.append(tdAdd, tdOrigin, tdName, tdPrice);
+  // 3日間非表示ボタン
+  const tdHide = el("td", "col-hide");
+  const hideBtn = el("button", "hide-btn", "3日間非表示");
+  hideBtn.addEventListener("click", () => {
+    // 選択中なら解除してから非表示
+    if (App.selected[key]) { delete App.selected[key]; saveSelected(); }
+    hideProduct(key);
+    tr.remove();
+  });
+  tdHide.appendChild(hideBtn);
+
+  tr.append(tdAdd, tdOrigin, tdName, tdPrice, tdHide);
   return tr;
 }
 
@@ -266,6 +305,42 @@ function shareToLine(text) {
   window.open(url, "_blank", "noopener");
 }
 
+/* ---------- 非表示管理モーダル ---------- */
+function openHiddenManager() {
+  const ul = $("hiddenList");
+  ul.innerHTML = "";
+  const keys = Object.keys(App.hidden).filter((k) => App.hidden[k] > Date.now());
+  if (!keys.length) {
+    ul.appendChild(el("li", "hint", "非表示中の商品はありません。"));
+  } else {
+    // 商品名・店舗を data から引く
+    const nameOf = {};
+    (App.data?.stores || []).forEach((s) =>
+      (s.products || []).forEach((p) => (nameOf[prodKey(s.id, p.name)] = { store: s.name, name: p.name }))
+    );
+    keys.sort((a, b) => App.hidden[a] - App.hidden[b]);
+    keys.forEach((key) => {
+      const info = nameOf[key] || { store: key.split("::")[0], name: key.split("::")[1] };
+      const remainMs = App.hidden[key] - Date.now();
+      const remainDays = Math.ceil(remainMs / 86400000);
+      const li = el("li");
+      const left = el("div");
+      left.appendChild(el("div", null, esc(info.name)));
+      left.appendChild(el("div", "hl-meta", `${esc(info.store)} ・ あと約${remainDays}日`));
+      li.appendChild(left);
+      const btn = el("button", null, "再表示");
+      btn.addEventListener("click", () => {
+        unhideProduct(key);
+        openHiddenManager(); // 再描画
+        render();            // 一覧にも即反映
+      });
+      li.appendChild(btn);
+      ul.appendChild(li);
+    });
+  }
+  showModal("hiddenModal");
+}
+
 /* ---------- レシピモーダル ---------- */
 function openRecipes(p) {
   $("recipeTitle").textContent = `「${p.name}」のレシピ`;
@@ -277,7 +352,7 @@ function openRecipes(p) {
     const q = encodeURIComponent(p.name);
     body.innerHTML =
       `<div class="recipe-empty">事前取得したレシピがありません。<br>` +
-      `<a href="https://cookpad.com/jp/search/${q}" target="_blank" rel="noopener">クックパッドで「${esc(p.name)}」を検索 ↗</a></div>`;
+      `<a href="https://recipe.rakuten.co.jp/search/${q}/" target="_blank" rel="noopener">楽天レシピで「${esc(p.name)}」を検索 ↗</a></div>`;
     showModal("recipeModal");
     return;
   }
@@ -297,9 +372,7 @@ function openRecipes(p) {
     card.appendChild(a);
 
     const send = el("button", "btn btn-line", "LINEへ送信");
-    send.addEventListener("click", () =>
-      shareToLine(`🍳 ${r.title}\n${r.url}`)
-    );
+    send.addEventListener("click", () => shareToLine(`🍳 ${r.title}\n${r.url}`));
     card.appendChild(send);
     body.appendChild(card);
   });
@@ -371,16 +444,11 @@ async function saveSettings() {
   }
 }
 
-// GitHub Contents API で settings.json を更新
 async function commitSettings(token) {
   const path = "settings.json";
   const apiBase = `https://api.github.com/repos/${REPO}/contents/${path}`;
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-  };
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
 
-  // 最新の sha を取得
   let sha = App.settingsSha;
   if (!sha) {
     const cur = await fetch(apiBase, { headers });
@@ -409,7 +477,6 @@ async function commitSettings(token) {
   App.settingsSha = (await res.json()).content.sha;
 }
 
-// UTF-8 安全な base64 エンコード
 function b64utf8(str) {
   const bytes = new TextEncoder().encode(str);
   let bin = "";
@@ -424,6 +491,8 @@ function hideModal(id) { $(id).hidden = true; }
 /* ---------- イベント ---------- */
 function bindUI() {
   $("btnSend").addEventListener("click", sendSelectedToLine);
+  $("btnHidden").addEventListener("click", openHiddenManager);
+  $("btnCloseHidden").addEventListener("click", () => hideModal("hiddenModal"));
   $("btnSettings").addEventListener("click", openSettings);
   $("btnCloseSettings").addEventListener("click", () => hideModal("settingsModal"));
   $("btnSaveSettings").addEventListener("click", saveSettings);
@@ -432,7 +501,6 @@ function bindUI() {
   $("btnCloseRecipe").addEventListener("click", () => hideModal("recipeModal"));
   $("btnCloseImage").addEventListener("click", () => hideModal("imageModal"));
 
-  // 背景クリックで閉じる
   document.querySelectorAll(".modal").forEach((m) => {
     m.addEventListener("click", (e) => { if (e.target === m) m.hidden = true; });
   });
