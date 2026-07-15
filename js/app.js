@@ -6,6 +6,8 @@
 
 const REPO = "qutto1/chirashi";
 const CATEGORY_ORDER = ["米・パン", "野菜", "鮮魚", "肉"];
+// レシピ優先プルダウンの対象区分(この順を第1ソートキーにする)
+const RECIPE_CATS = ["野菜", "鮮魚", "肉"];
 const CAT_CLASS = { "米・パン": "cat-rice", 野菜: "cat-veg", 鮮魚: "cat-fish", 肉: "cat-meat", その他: "cat-other" };
 const HIDE_DAYS = 3;
 const LS = {
@@ -406,20 +408,29 @@ function openRecipes(p) {
   _recipeCtx = { product: p };
   document.querySelector(".recipe-controls").hidden = false;
 
-  // プルダウンの選択肢: 全店舗の商品名(重複排除)
-  const allNames = [];
+  // プルダウンの選択肢: 野菜・鮮魚・肉の商品のみ。区分(野菜→鮮魚→肉)を第1ソートキーにする。
   const seen = new Set();
+  const named = [];
   (App.data.stores || []).forEach((s) =>
     (s.products || []).forEach((pp) => {
-      if (!seen.has(pp.name)) { seen.add(pp.name); allNames.push(pp.name); }
+      if (!RECIPE_CATS.includes(pp.category)) return;
+      if (seen.has(pp.name)) return;
+      seen.add(pp.name);
+      named.push({ name: pp.name, cat: pp.category });
     })
   );
+  // 区分を第1ソートキー(安定ソートなので同区分内は元の並び順を保持)
+  named.sort((a, b) => RECIPE_CATS.indexOf(a.cat) - RECIPE_CATS.indexOf(b.cat));
+  const allNames = named.map((x) => x.name);
 
-  // 初期値: ①=クリックした商品、②=選択中(買い物リスト)の一番上
-  const firstSelected = Object.values(App.selected)[0];
-  const sel2Default = firstSelected ? firstSelected.name : "";
+  // ①はクリックした商品を必ず選べるようにする(対象区分外なら先頭に補う)
+  const names1 = allNames.includes(p.name) ? allNames : [p.name, ...allNames];
 
-  fillRecipeSelect($("recipeSel1"), allNames, p.name, false);
+  // 初期値: ①=クリックした商品、②=選択中(買い物リスト)の一番上(対象区分のもの)
+  const firstSel = Object.values(App.selected).find((it) => allNames.includes(it.name));
+  const sel2Default = firstSel ? firstSel.name : "";
+
+  fillRecipeSelect($("recipeSel1"), names1, p.name, false);
   fillRecipeSelect($("recipeSel2"), allNames, sel2Default, true);
 
   // プルダウン変更で即レシピを再検索・再表示する
@@ -445,7 +456,8 @@ function fillRecipeSelect(sel, names, selected, allowNone) {
   });
 }
 
-// プルダウン①の商品のレシピを検索し、②の商品も使うものを優先表示する
+// ①の商品のレシピを基準に、②が選ばれていれば②のレシピも統合して再検索・優先表示する。
+// (①・②どちらのプルダウンを変えてもレシピ集合が変わる=再検索される)
 function renderRecipeList() {
   const body = $("recipeBody");
   body.innerHTML = "";
@@ -454,21 +466,34 @@ function renderRecipeList() {
   const v2 = $("recipeSel2").value;
 
   // ①の商品のレシピを基準にする(=①変更で再検索)
-  const base = findProductByName(v1) || _recipeCtx.product;
-  $("recipeTitle").textContent = `「${v1 || base.name}」のレシピ`;
-  const recipes = base.recipes || [];
+  const base1 = findProductByName(v1) || _recipeCtx.product;
+  const name1 = v1 || base1.name;
+
+  // ②が選択されていれば②の商品のレシピも統合する(=②変更でも再検索)
+  const recipes = (base1.recipes || []).slice();
+  if (v2 && v2 !== name1) {
+    const base2 = findProductByName(v2);
+    if (base2 && base2.recipes) {
+      const urls = new Set(recipes.map((r) => r.url));
+      base2.recipes.forEach((r) => { if (!urls.has(r.url)) { urls.add(r.url); recipes.push(r); } });
+    }
+  }
+
+  $("recipeTitle").textContent = (v2 && v2 !== name1)
+    ? `「${name1}」×「${v2}」のレシピ`
+    : `「${name1}」のレシピ`;
 
   if (!recipes.length) {
     $("recipeNote").hidden = true;
-    const q = encodeURIComponent(v1 || base.name);
+    const q = encodeURIComponent(name1);
     body.innerHTML =
-      `<div class="recipe-empty">「${esc(v1 || base.name)}」の事前取得レシピがありません。<br>` +
+      `<div class="recipe-empty">「${esc(name1)}」の事前取得レシピがありません。<br>` +
       `<a href="https://recipe.rakuten.co.jp/search/${q}/" target="_blank" rel="noopener">楽天レシピで検索 ↗</a></div>`;
     return;
   }
 
-  // 優先判定は②の商品(①は基準なので大半が一致するため②を強調)
-  const targets = [v2].filter(Boolean);
+  // ①②両方を使うレシピを最優先、次にどちらか一方を含むもの、の順に並べる
+  const targets = [name1, v2].filter((n, i, a) => n && a.indexOf(n) === i);
 
   const scored = recipes.map((r) => {
     const title = r.title || "";
@@ -478,7 +503,10 @@ function renderRecipeList() {
   scored.sort((a, b) => b.hits.length - a.hits.length);
 
   const note = $("recipeNote");
-  if (scored.some((s) => s.hits.length > 0)) {
+  if (v2 && v2 !== name1 && scored.some((s) => s.hits.length >= 2)) {
+    note.hidden = false;
+    note.textContent = "🛒 選んだ2品を使うレシピを上に表示しています";
+  } else if (scored.some((s) => s.hits.length > 0)) {
     note.hidden = false;
     note.textContent = "🛒 選んだ商品を使うレシピを上に表示しています";
   } else {
@@ -486,8 +514,10 @@ function renderRecipeList() {
   }
 
   scored.forEach(({ r, hits }) => {
+    // ①(基準)以外に一致した商品だけをバッジ表示する(①はほぼ全レシピに一致するため)
+    const extra = hits.filter((n) => n !== name1);
     const card = el("div", "recipe-card");
-    if (hits.length) card.classList.add("recipe-match");
+    if (extra.length) card.classList.add("recipe-match");
 
     if (r.thumb) {
       const link = el("a", "rc-thumb");
@@ -501,8 +531,8 @@ function renderRecipeList() {
       card.appendChild(link);
     }
 
-    if (hits.length) {
-      card.appendChild(el("div", "rc-match-tag", "🛒 " + hits.map(esc).join("・") + " も使える"));
+    if (extra.length) {
+      card.appendChild(el("div", "rc-match-tag", "🛒 " + extra.map(esc).join("・") + " も使える"));
     }
 
     const a = el("a", "rc-title", esc(r.title || "レシピ"));
