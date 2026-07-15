@@ -15,7 +15,7 @@ const LS = {
   hidden: "chirashi.hidden", // key -> 期限(epoch ms)
   gasUrl: "chirashi.gasUrl",
   gasSecret: "chirashi.gasSecret",
-  catVisible: "chirashi.catVisible", // 区分ごとの表示ON/OFF
+  catFilter: "chirashi.catFilter", // 表示区分(単一選択): "全て" | 区分名
 };
 
 const App = {
@@ -24,7 +24,7 @@ const App = {
   settingsSha: null,
   selected: {}, // key -> {store, name, price}
   hidden: {},   // key -> expiryMs
-  catVisible: {}, // cat -> bool (4区分の表示ON/OFF)
+  catFilter: "全て", // 表示区分(単一選択)。"全て" または区分名
 };
 
 /* ---------- ユーティリティ ---------- */
@@ -45,27 +45,20 @@ const prodKey = (storeId, name) => `${storeId}::${name}`;
 async function init() {
   loadSelected();
   loadHidden();
-  loadCatVisible();
+  loadCatFilter();
   bindUI();
   await Promise.all([loadSettings(), loadData()]);
   render();
 }
 
-/* ---------- 区分の表示ON/OFF(localStorage) ---------- */
-function loadCatVisible() {
-  let saved = {};
-  try {
-    saved = JSON.parse(localStorage.getItem(LS.catVisible) || "{}");
-  } catch {
-    saved = {};
-  }
-  // 既定は全区分ON
-  CATEGORY_ORDER.forEach((c) => {
-    App.catVisible[c] = saved[c] !== false;
-  });
+/* ---------- 表示区分(単一選択, localStorage) ---------- */
+function loadCatFilter() {
+  const saved = localStorage.getItem(LS.catFilter);
+  // "全て" または既知の区分名のみ有効。既定は "全て"。
+  App.catFilter = saved && (saved === "全て" || CATEGORY_ORDER.includes(saved)) ? saved : "全て";
 }
-function saveCatVisible() {
-  localStorage.setItem(LS.catVisible, JSON.stringify(App.catVisible));
+function saveCatFilter() {
+  localStorage.setItem(LS.catFilter, App.catFilter);
 }
 
 async function loadData() {
@@ -162,17 +155,18 @@ function render() {
   (App.data.stores || []).forEach((store) => container.appendChild(renderStore(store)));
 }
 
-// 上部の区分トグルバー(4区分の表示ON/OFF)
+// 上部の表示区分バー(「全て」+4区分の単一選択。どれか1つのみON)
 function renderCatFilter() {
   const bar = $("catFilter");
   bar.innerHTML = "";
   bar.appendChild(el("span", "cat-filter-label", "表示区分:"));
-  CATEGORY_ORDER.forEach((cat) => {
-    const on = App.catVisible[cat] !== false;
-    const btn = el("button", "cat-toggle " + (CAT_CLASS[cat] || "") + (on ? " on" : " off"), esc(cat));
+  ["全て", ...CATEGORY_ORDER].forEach((opt) => {
+    const on = App.catFilter === opt;
+    const cls = opt === "全て" ? "cat-all" : (CAT_CLASS[opt] || "");
+    const btn = el("button", "cat-toggle " + cls + (on ? " on" : ""), esc(opt));
     btn.addEventListener("click", () => {
-      App.catVisible[cat] = !on;
-      saveCatVisible();
+      App.catFilter = opt;
+      saveCatFilter();
       render();
     });
     bar.appendChild(btn);
@@ -208,12 +202,14 @@ function renderStore(store) {
     (byCat[cat] = byCat[cat] || []).push(p);
   });
 
-  // 区分順に描画。商品ゼロ、または表示OFFの区分はスキップ。
+  // 表示区分: "全て"なら全区分、特定区分ならその区分のみ表示。
+  const all = App.catFilter === "全て";
   CATEGORY_ORDER.forEach((cat) => {
-    if (App.catVisible[cat] === false) return;
+    if (!all && App.catFilter !== cat) return;
     if (byCat[cat] && byCat[cat].length) card.appendChild(renderCategory(store, cat, byCat[cat], false));
   });
-  if (byCat["その他"] && byCat["その他"].length) {
+  // 「その他」は「全て」選択時のみ表示。
+  if (all && byCat["その他"] && byCat["その他"].length) {
     card.appendChild(renderCategory(store, "その他", byCat["その他"], true));
   }
 

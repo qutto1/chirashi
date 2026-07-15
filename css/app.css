@@ -115,11 +115,11 @@ body {
   color: var(--muted);
   transition: background .15s, color .15s, border-color .15s;
 }
+.cat-toggle.on.cat-all { border-color: var(--text); color: #fff; background: var(--text); }
 .cat-toggle.on.cat-rice { border-color: #a1662f; color: #fff; background: #a1662f; }
 .cat-toggle.on.cat-veg { border-color: var(--veg); color: #fff; background: var(--veg); }
 .cat-toggle.on.cat-fish { border-color: var(--fish); color: #fff; background: var(--fish); }
 .cat-toggle.on.cat-meat { border-color: var(--meat); color: #fff; background: var(--meat); }
-.cat-toggle.off { text-decoration: line-through; opacity: .6; }
 
 .watch-hits {
   background: #fff0f0;
