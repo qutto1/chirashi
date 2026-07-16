@@ -423,15 +423,13 @@ function openRecipes(p) {
   named.sort((a, b) => RECIPE_CATS.indexOf(a.cat) - RECIPE_CATS.indexOf(b.cat));
   const allNames = named.map((x) => x.name);
 
-  // ①はクリックした商品を必ず選べるようにする(対象区分外なら先頭に補う)
-  const names1 = allNames.includes(p.name) ? allNames : [p.name, ...allNames];
-
   // 初期値: ①=クリックした商品、②=選択中(買い物リスト)の一番上(対象区分のもの)
   const firstSel = Object.values(App.selected).find((it) => allNames.includes(it.name));
   const sel2Default = firstSel ? firstSel.name : "";
 
-  fillRecipeSelect($("recipeSel1"), names1, p.name, false);
-  fillRecipeSelect($("recipeSel2"), allNames, sel2Default, true);
+  // 区分ごとに <optgroup> の区切り見出しを付けて表示する
+  fillRecipeSelectGrouped($("recipeSel1"), named, p.name, false);
+  fillRecipeSelectGrouped($("recipeSel2"), named, sel2Default, true);
 
   // プルダウン変更で即レシピを再検索・再表示する
   $("recipeSel1").onchange = renderRecipeList;
@@ -441,111 +439,156 @@ function openRecipes(p) {
   showModal("recipeModal");
 }
 
-function fillRecipeSelect(sel, names, selected, allowNone) {
+// 区分(野菜/鮮魚/肉)ごとに <optgroup> の見出しで区切ってプルダウンを作る
+function fillRecipeSelectGrouped(sel, named, selected, allowNone) {
   sel.innerHTML = "";
   if (allowNone) {
     const o = el("option", null, "（なし）");
     o.value = "";
     sel.appendChild(o);
   }
-  names.forEach((n) => {
-    const o = el("option", null, esc(n));
-    o.value = n;
-    if (n === selected) o.selected = true;
+  // 選択商品が対象区分外(クリックした商品など)なら先頭に単独で足す
+  if (selected && !named.some((x) => x.name === selected)) {
+    const o = el("option", null, esc(selected));
+    o.value = selected;
     sel.appendChild(o);
+  }
+  RECIPE_CATS.forEach((cat) => {
+    const items = named.filter((x) => x.cat === cat);
+    if (!items.length) return;
+    const og = document.createElement("optgroup");
+    og.label = cat; // 区分の区切り見出し
+    items.forEach((x) => {
+      const o = el("option", null, esc(x.name));
+      o.value = x.name;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
   });
+  sel.value = selected || "";
 }
 
-// ①の商品のレシピを基準に、②が選ばれていれば②のレシピも統合して再検索・優先表示する。
-// (①・②どちらのプルダウンを変えてもレシピ集合が変わる=再検索される)
+// 商品名から料理名に出やすい「コア食材語」を取り出す。
+// 例: 「豚バラうす切り」→「豚バラ」、「びんちょうまぐろ刺身用」→「びんちょうまぐろ」、
+//     「銀だら切身(味付)」→「銀だら」。完全一致しなくても両方使い判定に使う。
+function coreKeyword(name) {
+  let k = String(name || "");
+  k = k.replace(/[（(][^）)]*[）)]/g, ""); // 括弧内(スライス・焼肉用 等)を除去
+  const strip = ["うす切り", "薄切り", "切り身", "切身", "刺身用", "刺身", "蒲焼",
+    "生姜焼用", "焼肉用", "味付", "解凍", "冷凍", "ブロック", "スライス", "盛合せ"];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const s of strip) {
+      if (k.endsWith(s)) { k = k.slice(0, -s.length); changed = true; break; }
+    }
+  }
+  k = k.replace(/[　\s]+/g, "").replace(/(特大|大|小|中)$/, "");
+  return k.trim();
+}
+
+// レシピのタイトルが、その商品(完全名 or コア語)を使っているとみなせるか
+function titleUsesProduct(title, name) {
+  if (!title) return false;
+  if (title.includes(name)) return true;
+  const c = coreKeyword(name);
+  return c.length >= 2 && title.includes(c);
+}
+
+// レシピカード1枚を組み立てる(extraTags があれば「◯◯ も使える」バッジを付ける)
+function buildRecipeCard(r, extraTags) {
+  const card = el("div", "recipe-card");
+  if (extraTags && extraTags.length) card.classList.add("recipe-match");
+
+  if (r.thumb) {
+    const link = el("a", "rc-thumb");
+    link.href = r.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    const img = el("img");
+    img.src = r.thumb;
+    img.loading = "lazy";
+    link.appendChild(img);
+    card.appendChild(link);
+  }
+
+  if (extraTags && extraTags.length) {
+    card.appendChild(el("div", "rc-match-tag", "🛒 " + extraTags.map(esc).join("・") + " も使える"));
+  }
+
+  const a = el("a", "rc-title", esc(r.title || "レシピ"));
+  a.href = r.url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  card.appendChild(a);
+
+  const send = el("button", "btn btn-line", "LINEへ送信");
+  send.addEventListener("click", () => shareToLine(`🍳 ${r.title}\n${r.url}`));
+  card.appendChild(send);
+  return card;
+}
+
+function renderRecipeEmpty(name) {
+  $("recipeNote").hidden = true;
+  const q = encodeURIComponent(name);
+  $("recipeBody").innerHTML =
+    `<div class="recipe-empty">「${esc(name)}」の事前取得レシピがありません。<br>` +
+    `<a href="https://recipe.rakuten.co.jp/search/${q}/" target="_blank" rel="noopener">楽天レシピで検索 ↗</a></div>`;
+}
+
+// ②未選択なら①のレシピ、②選択時は①と②の【両方を使う】レシピだけを表示する。
+// (プルダウンを変えると即再検索。両方使いのレシピは楽天の複合キーワード検索でも辿れる)
 function renderRecipeList() {
   const body = $("recipeBody");
   body.innerHTML = "";
+  const note = $("recipeNote");
 
   const v1 = $("recipeSel1").value;
   const v2 = $("recipeSel2").value;
-
-  // ①の商品のレシピを基準にする(=①変更で再検索)
   const base1 = findProductByName(v1) || _recipeCtx.product;
   const name1 = v1 || base1.name;
 
-  // ②が選択されていれば②の商品のレシピも統合する(=②変更でも再検索)
-  const recipes = (base1.recipes || []).slice();
-  if (v2 && v2 !== name1) {
-    const base2 = findProductByName(v2);
-    if (base2 && base2.recipes) {
-      const urls = new Set(recipes.map((r) => r.url));
-      base2.recipes.forEach((r) => { if (!urls.has(r.url)) { urls.add(r.url); recipes.push(r); } });
-    }
-  }
-
-  $("recipeTitle").textContent = (v2 && v2 !== name1)
-    ? `「${name1}」×「${v2}」のレシピ`
-    : `「${name1}」のレシピ`;
-
-  if (!recipes.length) {
-    $("recipeNote").hidden = true;
-    const q = encodeURIComponent(name1);
-    body.innerHTML =
-      `<div class="recipe-empty">「${esc(name1)}」の事前取得レシピがありません。<br>` +
-      `<a href="https://recipe.rakuten.co.jp/search/${q}/" target="_blank" rel="noopener">楽天レシピで検索 ↗</a></div>`;
+  // --- ②未選択: ①のレシピをそのまま表示 ---
+  if (!v2 || v2 === name1) {
+    $("recipeTitle").textContent = `「${name1}」のレシピ`;
+    const recipes = base1.recipes || [];
+    if (!recipes.length) { renderRecipeEmpty(name1); return; }
+    note.hidden = true;
+    recipes.forEach((r) => body.appendChild(buildRecipeCard(r, [])));
     return;
   }
 
-  // ①②両方を使うレシピを最優先、次にどちらか一方を含むもの、の順に並べる
-  const targets = [name1, v2].filter((n, i, a) => n && a.indexOf(n) === i);
+  // --- ②選択: ①と②の両方を使うレシピだけを表示 ---
+  $("recipeTitle").textContent = `「${name1}」×「${v2}」のレシピ`;
+  const base2 = findProductByName(v2);
 
-  const scored = recipes.map((r) => {
-    const title = r.title || "";
-    const hits = targets.filter((n) => title.includes(n));
-    return { r, hits };
+  // ①・②双方の事前取得レシピを母集団にして重複排除
+  const pool = [];
+  const seen = new Set();
+  [...(base1.recipes || []), ...(base2 && base2.recipes ? base2.recipes : [])].forEach((r) => {
+    if (!seen.has(r.url)) { seen.add(r.url); pool.push(r); }
   });
-  scored.sort((a, b) => b.hits.length - a.hits.length);
+  // 両方の商品(完全名 or コア食材語)をタイトルに含むレシピ=両方使いとみなす
+  const both = pool.filter((r) =>
+    titleUsesProduct(r.title, name1) && titleUsesProduct(r.title, v2)
+  );
 
-  const note = $("recipeNote");
-  if (v2 && v2 !== name1 && scored.some((s) => s.hits.length >= 2)) {
+  // 楽天レシピの複数キーワード検索(本当の“両方使う”一覧への導線)
+  const q = encodeURIComponent(`${name1} ${v2}`);
+  const searchLink =
+    `<a href="https://recipe.rakuten.co.jp/search/${q}/" target="_blank" rel="noopener">` +
+    `楽天レシピで「${esc(name1)}×${esc(v2)}」をもっと見る ↗</a>`;
+
+  if (both.length) {
     note.hidden = false;
-    note.textContent = "🛒 選んだ2品を使うレシピを上に表示しています";
-  } else if (scored.some((s) => s.hits.length > 0)) {
-    note.hidden = false;
-    note.textContent = "🛒 選んだ商品を使うレシピを上に表示しています";
+    note.innerHTML = `🛒「${esc(name1)}」と「${esc(v2)}」の両方を使うレシピ ・ ${searchLink}`;
+    both.forEach((r) => body.appendChild(buildRecipeCard(r, [])));
   } else {
     note.hidden = true;
+    body.innerHTML =
+      `<div class="recipe-empty">事前取得ぶんに「${esc(name1)}」と「${esc(v2)}」の両方を使うレシピは` +
+      `見つかりませんでした。<br>${searchLink}</div>`;
   }
-
-  scored.forEach(({ r, hits }) => {
-    // ①(基準)以外に一致した商品だけをバッジ表示する(①はほぼ全レシピに一致するため)
-    const extra = hits.filter((n) => n !== name1);
-    const card = el("div", "recipe-card");
-    if (extra.length) card.classList.add("recipe-match");
-
-    if (r.thumb) {
-      const link = el("a", "rc-thumb");
-      link.href = r.url;
-      link.target = "_blank";
-      link.rel = "noopener";
-      const img = el("img");
-      img.src = r.thumb;
-      img.loading = "lazy";
-      link.appendChild(img);
-      card.appendChild(link);
-    }
-
-    if (extra.length) {
-      card.appendChild(el("div", "rc-match-tag", "🛒 " + extra.map(esc).join("・") + " も使える"));
-    }
-
-    const a = el("a", "rc-title", esc(r.title || "レシピ"));
-    a.href = r.url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    card.appendChild(a);
-
-    const send = el("button", "btn btn-line", "LINEへ送信");
-    send.addEventListener("click", () => shareToLine(`🍳 ${r.title}\n${r.url}`));
-    card.appendChild(send);
-    body.appendChild(card);
-  });
 }
 
 /* ---------- 画像モーダル ---------- */
