@@ -18,6 +18,7 @@ const LS = {
   gasUrl: "chirashi.gasUrl",
   gasSecret: "chirashi.gasSecret",
   catFilter: "chirashi.catFilter", // 表示区分(単一選択): "全て" | 区分名
+  settings: "chirashi.settings", // 通知時刻+常時チェック商品の端末ローカル退避
 };
 
 const App = {
@@ -75,12 +76,32 @@ async function loadData() {
 }
 
 async function loadSettings() {
+  // まずリモート settings.json(バックエンド=毎朝の通知が参照する正)を読む
   try {
     const res = await fetch(`settings.json?t=${Date.now()}`);
     if (res.ok) App.settings = await res.json();
   } catch (e) {
     console.warn("settings.json 読み込み失敗", e);
   }
+  // 端末ローカルの退避があれば上書き。追加直後にGitHub保存(要PAT)しなくても
+  // リロードで消えないようにするための救済。ローカルの方が新しい編集を表す。
+  try {
+    const local = JSON.parse(localStorage.getItem(LS.settings) || "null");
+    if (local && typeof local === "object") {
+      App.settings.notify_time = local.notify_time || App.settings.notify_time || "08:00";
+      if (Array.isArray(local.watch_items)) App.settings.watch_items = local.watch_items;
+    }
+  } catch (e) {
+    console.warn("ローカル設定の読み込み失敗", e);
+  }
+}
+
+// 通知時刻+常時チェック商品を端末ローカルに退避(即時・PAT不要)
+function saveSettingsLocal() {
+  localStorage.setItem(LS.settings, JSON.stringify({
+    notify_time: App.settings.notify_time || "08:00",
+    watch_items: App.settings.watch_items || [],
+  }));
 }
 
 /* ---------- 選択状態(localStorage) ---------- */
@@ -617,6 +638,7 @@ function renderWatchList() {
     const del = el("button", null, "🗑");
     del.addEventListener("click", () => {
       App.settings.watch_items.splice(i, 1);
+      saveSettingsLocal(); // 削除も即ローカル退避
       renderWatchList();
     });
     li.appendChild(del);
@@ -634,6 +656,7 @@ function addWatchItem() {
   App.settings.watch_items = App.settings.watch_items || [];
   if (!App.settings.watch_items.includes(v)) App.settings.watch_items.push(v);
   inp.value = "";
+  saveSettingsLocal(); // 追加を即ローカル退避(PAT無し・保存押し忘れでも消えない)
   renderWatchList();
 }
 
@@ -648,19 +671,23 @@ async function saveSettings() {
   if (gasUrl) localStorage.setItem(LS.gasUrl, gasUrl); else localStorage.removeItem(LS.gasUrl);
   if (gasSecret) localStorage.setItem(LS.gasSecret, gasSecret); else localStorage.removeItem(LS.gasSecret);
 
+  // 通知時刻+チェック商品は常に端末ローカルへ退避(PAT有無に関わらず消えない)
+  saveSettingsLocal();
+
   const status = $("saveStatus");
   if (!token) {
-    status.textContent = "トークン未設定のため保存できません（設定は次回開くまで保持）。";
+    // ローカルには残るが、毎朝のLINE通知に反映するにはGitHub保存(PAT)が必要
+    status.textContent = "この端末には保存しました。ただしLINE通知へ反映するには保存用トークン(PAT)が必要です。";
     return;
   }
 
   status.textContent = "保存中…";
   try {
     await commitSettings(token);
-    status.textContent = "✅ 保存しました。反映まで数十秒かかることがあります。";
+    status.textContent = "✅ 保存しました（LINE通知にも反映）。反映まで数十秒かかることがあります。";
   } catch (e) {
     console.error(e);
-    status.textContent = "❌ 保存に失敗: " + e.message;
+    status.textContent = "❌ GitHub保存に失敗: " + e.message + "（この端末には保存済み）";
   }
 }
 
