@@ -448,3 +448,17 @@ input[type="time"], input[type="text"], input[type="password"] {
 .image-modal { align-items: center; background: rgba(0,0,0,.85); }
 .image-modal img { max-width: 100%; max-height: 90vh; border-radius: 4px; }
 .image-close { position: fixed; top: 12px; right: 12px; font-size: 20px; }
+
+/* 設定の同期状態(LINE通知に反映済みか) */
+.sync-status { font-size: 13px; margin-top: 8px; padding: 6px 8px; border-radius: 6px; line-height: 1.5; }
+.sync-status.ok { background: #e8f5e9; color: #1b5e20; }
+.sync-status.warn { background: #fff3e0; color: #bf360c; }
+.sync-status.wait { background: #eceff1; color: #455a64; }
+#btnSettings { position: relative; }
+#btnSettings.dirty::after {
+  content: ""; position: absolute; top: 1px; right: 1px; width: 10px; height: 10px;
+  border-radius: 50%; background: #ffb300; border: 2px solid #e60012;
+}
+
+.store-empty { margin: 8px 12px; padding: 10px 12px; border-radius: 6px; background: #f3f4f6; color: var(--muted); font-size: 14px; }
+.store-empty.warn { background: #fff3e0; color: #bf360c; font-weight: 700; }

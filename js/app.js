@@ -19,12 +19,15 @@ const LS = {
   gasSecret: "chirashi.gasSecret",
   catFilter: "chirashi.catFilter", // 表示区分(単一選択): "全て" | 区分名
   settings: "chirashi.settings", // 通知時刻+常時チェック商品の端末ローカル退避
+  settingsBase: "chirashi.settingsBase", // 最後にGitHubと一致を確認した設定(未反映の編集の判定用)
 };
 
 const App = {
   data: null,
   settings: { notify_time: "08:00", watch_items: [] },
   settingsSha: null,
+  remote: null,      // GitHub上の設定(=毎朝のLINE通知が読む正)。取得失敗時は null
+  syncError: "",     // 直近のGitHub反映エラー
   selected: {}, // key -> {store, name, price}
   hidden: {},   // key -> expiryMs
   catFilter: "全て", // 表示区分(単一選択)。"全て" または区分名
@@ -75,33 +78,125 @@ async function loadData() {
   }
 }
 
+/* ---------- 設定(通知時刻+常時チェック商品)の同期 ----------
+ * 毎朝のLINE通知が読むのは GitHub 上の settings.json だけ。端末ローカルに保存しただけでは
+ * LINE通知に反映されない。以前は「追加・削除は端末に保存、GitHubへは保存ボタンで送信」だったため、
+ * 画面には反映済みのように見えるのにLINEは古い設定のまま、という食い違いが起きた(2026-09-29)。
+ * → 編集のたびに自動でGitHubへ反映し、反映済みかどうかを常に画面に出す。
+ */
+const normSettings = (s) => ({
+  notify_time: (s && s.notify_time) || "08:00",
+  watch_items: ((s && s.watch_items) || []).filter(Boolean),
+});
+const sameSettings = (a, b) => {
+  const x = normSettings(a), y = normSettings(b);
+  return x.notify_time === y.notify_time &&
+    JSON.stringify([...x.watch_items].sort()) === JSON.stringify([...y.watch_items].sort());
+};
+const readLS = (k) => {
+  try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; }
+};
+const isSynced = () => !!App.remote && sameSettings(App.settings, App.remote);
+
 async function loadSettings() {
   // まずリモート settings.json(バックエンド=毎朝の通知が参照する正)を読む
+  let remote = null;
   try {
-    const res = await fetch(`settings.json?t=${Date.now()}`);
-    if (res.ok) App.settings = await res.json();
+    const res = await fetch(`settings.json?t=${Date.now()}`, { cache: "no-store" });
+    if (res.ok) remote = normSettings(await res.json());
   } catch (e) {
     console.warn("settings.json 読み込み失敗", e);
   }
-  // 端末ローカルの退避があれば上書き。追加直後にGitHub保存(要PAT)しなくても
-  // リロードで消えないようにするための救済。ローカルの方が新しい編集を表す。
-  try {
-    const local = JSON.parse(localStorage.getItem(LS.settings) || "null");
-    if (local && typeof local === "object") {
-      App.settings.notify_time = local.notify_time || App.settings.notify_time || "08:00";
-      if (Array.isArray(local.watch_items)) App.settings.watch_items = local.watch_items;
-    }
-  } catch (e) {
-    console.warn("ローカル設定の読み込み失敗", e);
+  App.remote = remote;
+
+  const local = readLS(LS.settings);
+  const base = readLS(LS.settingsBase);
+  if (!remote) {
+    // 取得できない時は端末ローカルで表示だけ続ける
+    App.settings = normSettings(local);
+    return;
   }
+  // 未反映のローカル編集がある = ローカルが「最後に同期した内容(base)」から変わっている。
+  // 未反映ならローカルを優先。そうでなければリモートを採用(別端末での更新を取り込む)。
+  // base が無い旧版の端末は「リモートと違う」ことを未反映とみなす。
+  const pending = !!local && !sameSettings(local, base || remote);
+  // remote と同一オブジェクトを共有すると、編集がリモート側の記録まで書き換えて常に「反映済み」に見える
+  App.settings = normSettings(pending ? local : remote);
+  if (!pending) {
+    saveSettingsLocal();
+    localStorage.setItem(LS.settingsBase, JSON.stringify(remote));
+  }
+  scheduleSync(0); // 未反映が残っていれば(PATがあれば)すぐ反映する
 }
 
 // 通知時刻+常時チェック商品を端末ローカルに退避(即時・PAT不要)
 function saveSettingsLocal() {
-  localStorage.setItem(LS.settings, JSON.stringify({
-    notify_time: App.settings.notify_time || "08:00",
-    watch_items: App.settings.watch_items || [],
-  }));
+  localStorage.setItem(LS.settings, JSON.stringify(normSettings(App.settings)));
+}
+
+// 編集の都度: 端末へ退避 → GitHubへ自動反映(PATがあれば)→ 表示更新
+function onSettingsEdited() {
+  saveSettingsLocal();
+  scheduleSync();
+}
+
+let syncTimer = null;
+let syncRunning = false;
+let syncRerun = false;
+let syncFails = 0;
+
+function scheduleSync(delay = 800) {
+  updateSyncUI();
+  if (!localStorage.getItem(LS.ghToken) || isSynced()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(runSync, delay);
+}
+
+async function runSync() {
+  const token = localStorage.getItem(LS.ghToken);
+  if (!token) { updateSyncUI(); return; }
+  if (syncRunning) { syncRerun = true; return; }
+  syncRunning = true;
+  App.syncError = "";
+  updateSyncUI();
+  try {
+    do {
+      syncRerun = false;
+      if (!isSynced()) await commitSettings(token);
+    } while (syncRerun);
+    syncFails = 0;
+  } catch (e) {
+    console.error(e);
+    App.syncError = e.message;
+    // 一時的な失敗は少し待って自動再試行(トークン不正などで延々続かないよう3回まで)
+    if (++syncFails <= 3) { clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 30000); }
+  } finally {
+    syncRunning = false;
+    updateSyncUI();
+  }
+}
+
+function updateSyncUI() {
+  const synced = isSynced();
+  const hasToken = !!localStorage.getItem(LS.ghToken);
+  let text, cls;
+  if (synced) {
+    text = "✅ LINE通知に反映済み"; cls = "ok";
+  } else if (syncRunning) {
+    text = "⏳ LINE通知へ反映中…"; cls = "wait";
+  } else if (!hasToken) {
+    text = "⚠ この端末だけの変更です。LINE通知にはまだ反映されていません。" +
+      "下の「保存用トークン」を設定して「保存」を押すと反映されます。";
+    cls = "warn";
+  } else if (App.syncError) {
+    text = "❌ LINE通知への反映に失敗: " + App.syncError + "（自動で再試行します）"; cls = "warn";
+  } else {
+    text = "⏳ LINE通知への反映待ち…"; cls = "wait";
+  }
+  const st = $("syncStatus");
+  if (st) { st.textContent = text; st.className = "sync-status " + cls; }
+  const gear = $("btnSettings");
+  if (gear) gear.classList.toggle("dirty", !synced);
 }
 
 /* ---------- 選択状態(localStorage) ---------- */
@@ -216,6 +311,15 @@ function renderStore(store) {
     `<h2>${esc(store.name)}</h2>` +
     (store.url ? `<a href="${esc(store.url)}" target="_blank" rel="noopener">元のチラシページを開く ↗</a>` : "");
   card.appendChild(head);
+
+  // 商品が0件の店は理由を明示する(真っ白だと不具合か掲載なしか分からない)
+  if (!(store.products || []).length) {
+    const failed = store.status === "failed";
+    card.appendChild(el("div", "store-empty" + (failed ? " warn" : ""),
+      failed ? "⚠ 今回は情報を取得できませんでした。「元のチラシページ」で確認してください。"
+        : store.status === "no_flyer" ? "本日チラシの掲載はありません。"
+        : "掲載商品の情報がありません。"));
+  }
 
   // 非表示中の商品を除外して区分ごとにグループ化
   const byCat = {};
@@ -626,6 +730,7 @@ function openSettings() {
   $("gasSecret").value = localStorage.getItem(LS.gasSecret) || "";
   renderWatchList();
   $("saveStatus").textContent = "";
+  updateSyncUI();
   showModal("settingsModal");
 }
 
@@ -638,7 +743,7 @@ function renderWatchList() {
     const del = el("button", null, "🗑");
     del.addEventListener("click", () => {
       App.settings.watch_items.splice(i, 1);
-      saveSettingsLocal(); // 削除も即ローカル退避
+      onSettingsEdited(); // 削除も端末へ退避+GitHubへ自動反映
       renderWatchList();
     });
     li.appendChild(del);
@@ -656,14 +761,14 @@ function addWatchItem() {
   App.settings.watch_items = App.settings.watch_items || [];
   if (!App.settings.watch_items.includes(v)) App.settings.watch_items.push(v);
   inp.value = "";
-  saveSettingsLocal(); // 追加を即ローカル退避(PAT無し・保存押し忘れでも消えない)
+  onSettingsEdited(); // 追加を端末へ退避+GitHubへ自動反映(保存ボタンを押し忘れても届く)
   renderWatchList();
 }
 
 async function saveSettings() {
   App.settings.notify_time = $("notifyTime").value || "08:00";
   const token = $("ghToken").value.trim();
-  if (token) localStorage.setItem(LS.ghToken, token);
+  if (token) { localStorage.setItem(LS.ghToken, token); syncFails = 0; }
 
   // GAS中継設定(端末ローカル保存)
   const gasUrl = $("gasUrl").value.trim();
@@ -675,20 +780,19 @@ async function saveSettings() {
   saveSettingsLocal();
 
   const status = $("saveStatus");
-  if (!token) {
+  if (!localStorage.getItem(LS.ghToken)) {
     // ローカルには残るが、毎朝のLINE通知に反映するにはGitHub保存(PAT)が必要
     status.textContent = "この端末には保存しました。ただしLINE通知へ反映するには保存用トークン(PAT)が必要です。";
+    updateSyncUI();
     return;
   }
 
   status.textContent = "保存中…";
-  try {
-    await commitSettings(token);
-    status.textContent = "✅ 保存しました（LINE通知にも反映）。反映まで数十秒かかることがあります。";
-  } catch (e) {
-    console.error(e);
-    status.textContent = "❌ GitHub保存に失敗: " + e.message + "（この端末には保存済み）";
-  }
+  clearTimeout(syncTimer);
+  await runSync();
+  if (isSynced()) status.textContent = "✅ 保存しました（LINE通知にも反映）。反映まで数十秒かかることがあります。";
+  else if (App.syncError) status.textContent = "❌ GitHub保存に失敗: " + App.syncError + "（この端末には保存済み）";
+  else status.textContent = "反映中…";
 }
 
 async function commitSettings(token) {
@@ -696,32 +800,38 @@ async function commitSettings(token) {
   const apiBase = `https://api.github.com/repos/${REPO}/contents/${path}`;
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
 
-  let sha = App.settingsSha;
-  if (!sha) {
-    const cur = await fetch(apiBase, { headers });
-    if (cur.ok) sha = (await cur.json()).sha;
+  const fetchSha = async () => {
+    const cur = await fetch(apiBase, { headers, cache: "no-store" });
+    return cur.ok ? (await cur.json()).sha : null;
+  };
+
+  // 送信内容はこの時点のスナップショット(送信中に編集されても混ざらない)
+  const content = normSettings(App.settings);
+  const put = (sha) => {
+    const body = {
+      message: `設定更新: 通知${content.notify_time} / チェック${content.watch_items.length}件`,
+      content: b64utf8(JSON.stringify(content, null, 2) + "\n"),
+    };
+    if (sha) body.sha = sha;
+    return fetch(apiBase, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  };
+
+  let res = await put(App.settingsSha || (await fetchSha()));
+  if (res.status === 409 || res.status === 422) {
+    // 別端末やバックエンドの更新でshaが古くなった → 取り直して1回だけ再試行
+    res = await put(await fetchSha());
   }
-
-  const content = {
-    notify_time: App.settings.notify_time,
-    watch_items: App.settings.watch_items || [],
-  };
-  const body = {
-    message: `設定更新: 通知${content.notify_time} / チェック${content.watch_items.length}件`,
-    content: b64utf8(JSON.stringify(content, null, 2) + "\n"),
-  };
-  if (sha) body.sha = sha;
-
-  const res = await fetch(apiBase, {
-    method: "PUT",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
   if (!res.ok) {
     const t = await res.text();
     throw new Error(`${res.status} ${t.slice(0, 120)}`);
   }
   App.settingsSha = (await res.json()).content.sha;
+  App.remote = content;
+  localStorage.setItem(LS.settingsBase, JSON.stringify(content));
 }
 
 function b64utf8(str) {
@@ -743,6 +853,10 @@ function bindUI() {
   $("btnSettings").addEventListener("click", openSettings);
   $("btnCloseSettings").addEventListener("click", () => hideModal("settingsModal"));
   $("btnSaveSettings").addEventListener("click", saveSettings);
+  $("notifyTime").addEventListener("change", (e) => {
+    App.settings.notify_time = e.target.value || "08:00";
+    onSettingsEdited();
+  });
   $("btnAddWatch").addEventListener("click", addWatchItem);
   $("watchInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addWatchItem(); });
   $("btnCloseRecipe").addEventListener("click", () => hideModal("recipeModal"));
